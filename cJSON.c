@@ -399,6 +399,14 @@ loop_end:
     return true;
 }
 
+CJSON_PUBLIC(long long) cJSON_SetIntHelper(cJSON *object, long long number)
+{
+    object->valuedouble = (double)NAN;
+    object->valueint = number;
+
+    return number;
+}
+
 /* don't ask me, but the original cJSON_SetNumberValue returns an integer or double */
 CJSON_PUBLIC(double) cJSON_SetNumberHelper(cJSON *object, double number)
 {
@@ -579,9 +587,13 @@ static cJSON_bool print_number(const cJSON * const item, printbuffer * const out
     }
 
     /* This checks for NaN and Infinity */
-    if (isnan(d) || isinf(d))
+    if (isinf(d))
     {
         length = sprintf((char*)number_buffer, "null");
+    }
+    else if (isnan(d))
+    {
+        length = sprintf((char*)number_buffer, "%lld", item->valueint);
     }
     else
     {
@@ -2153,6 +2165,18 @@ CJSON_PUBLIC(cJSON*) cJSON_AddNumberToObject(cJSON * const object, const char * 
     return NULL;
 }
 
+CJSON_PUBLIC(cJSON*) cJSON_AddIntToObject(cJSON * const object, const char * const name, const long long number)
+{
+    cJSON *number_item = cJSON_CreateInt(number);
+    if (add_item_to_object(object, name, number_item, &global_hooks, false))
+    {
+        return number_item;
+    }
+
+    cJSON_Delete(number_item);
+    return NULL;
+}
+
 CJSON_PUBLIC(cJSON*) cJSON_AddStringToObject(cJSON * const object, const char * const name, const char * const string)
 {
     cJSON *string_item = cJSON_CreateString(string);
@@ -2464,6 +2488,19 @@ CJSON_PUBLIC(cJSON *) cJSON_CreateNumber(double num)
     return item;
 }
 
+CJSON_PUBLIC(cJSON *) cJSON_CreateInt(long long num)
+{
+    cJSON *item = cJSON_New_Item(&global_hooks);
+    if(item)
+    {
+        item->type = cJSON_Number;
+        item->valuedouble = (double) NAN;
+        item->valueint = num;
+    }
+
+    return item;
+}
+
 CJSON_PUBLIC(cJSON *) cJSON_CreateString(const char *string)
 {
     cJSON *item = cJSON_New_Item(&global_hooks);
@@ -2570,7 +2607,7 @@ CJSON_PUBLIC(cJSON *) cJSON_CreateIntArray(const int *numbers, int count)
 
     for(i = 0; a && (i < (size_t)count); i++)
     {
-        n = cJSON_CreateNumber(numbers[i]);
+        n = cJSON_CreateInt(numbers[i]);
         if (!n)
         {
             cJSON_Delete(a);
