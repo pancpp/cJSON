@@ -116,6 +116,11 @@ CJSON_PUBLIC(double) cJSON_GetNumberValue(const cJSON * const item)
     return item->valuedouble;
 }
 
+CJSON_PUBLIC(long long) cJSON_GetIntValue(const cJSON * const item)
+{
+    return item->valueint;
+}
+
 /* This is a safeguard to prevent copy-pasters from using incompatible C and header files */
 #if (CJSON_VERSION_MAJOR != 1) || (CJSON_VERSION_MINOR != 7) || (CJSON_VERSION_PATCH != 15)
     #error cJSON.h and cJSON.c have different versions. Make sure that both have the same.
@@ -358,18 +363,34 @@ loop_end:
 
     item->valuedouble = number;
 
-    /* use saturation in case of overflow */
-    if (number >= INT_MAX)
+    // check whether it is an integer
+    int is_long_long = 1;
+    for(const unsigned char* c = number_c_string; c < after_end; ++c)
     {
-        item->valueint = INT_MAX;
+        if (*c == 'e' || *c == 'E' || *c == decimal_point)
+        {
+            is_long_long = 0;
+            break;
+        }
     }
-    else if (number <= (double)INT_MIN)
+    if (is_long_long)
     {
-        item->valueint = INT_MIN;
+        item->valueint = strtoll((const char*)number_c_string, (char**)&after_end, 10);
     }
     else
     {
-        item->valueint = (int)number;
+        if (number >= LLONG_MAX)
+        {
+            item->valueint = LLONG_MAX;
+        }
+        else if (number <= (double)LLONG_MIN)
+        {
+            item->valueint = LLONG_MIN;
+        }
+        else
+        {
+            item->valueint = (long long)number;
+        }
     }
 
     item->type = cJSON_Number;
@@ -378,20 +399,28 @@ loop_end:
     return true;
 }
 
+CJSON_PUBLIC(long long) cJSON_SetIntHelper(cJSON *object, long long number)
+{
+    object->valuedouble = (double)NAN;
+    object->valueint = number;
+
+    return number;
+}
+
 /* don't ask me, but the original cJSON_SetNumberValue returns an integer or double */
 CJSON_PUBLIC(double) cJSON_SetNumberHelper(cJSON *object, double number)
 {
-    if (number >= INT_MAX)
+    if (number >= LLONG_MAX)
     {
-        object->valueint = INT_MAX;
+        object->valueint = LLONG_MAX;
     }
-    else if (number <= (double)INT_MIN)
+    else if (number <= (double)LLONG_MIN)
     {
-        object->valueint = INT_MIN;
+        object->valueint = LLONG_MIN;
     }
     else
     {
-        object->valueint = (int)number;
+        object->valueint = (long long)number;
     }
 
     return object->valuedouble = number;
@@ -558,9 +587,13 @@ static cJSON_bool print_number(const cJSON * const item, printbuffer * const out
     }
 
     /* This checks for NaN and Infinity */
-    if (isnan(d) || isinf(d))
+    if (isinf(d))
     {
         length = sprintf((char*)number_buffer, "null");
+    }
+    else if (isnan(d))
+    {
+        length = sprintf((char*)number_buffer, "%lld", item->valueint);
     }
     else
     {
@@ -2132,6 +2165,18 @@ CJSON_PUBLIC(cJSON*) cJSON_AddNumberToObject(cJSON * const object, const char * 
     return NULL;
 }
 
+CJSON_PUBLIC(cJSON*) cJSON_AddIntToObject(cJSON * const object, const char * const name, const long long number)
+{
+    cJSON *number_item = cJSON_CreateInt(number);
+    if (add_item_to_object(object, name, number_item, &global_hooks, false))
+    {
+        return number_item;
+    }
+
+    cJSON_Delete(number_item);
+    return NULL;
+}
+
 CJSON_PUBLIC(cJSON*) cJSON_AddStringToObject(cJSON * const object, const char * const name, const char * const string)
 {
     cJSON *string_item = cJSON_CreateString(string);
@@ -2426,18 +2471,31 @@ CJSON_PUBLIC(cJSON *) cJSON_CreateNumber(double num)
         item->valuedouble = num;
 
         /* use saturation in case of overflow */
-        if (num >= INT_MAX)
+        if (num >= LLONG_MAX)
         {
-            item->valueint = INT_MAX;
+            item->valueint = LLONG_MAX;
         }
-        else if (num <= (double)INT_MIN)
+        else if (num <= (double)LLONG_MIN)
         {
-            item->valueint = INT_MIN;
+            item->valueint = LLONG_MIN;
         }
         else
         {
-            item->valueint = (int)num;
+            item->valueint = (long long)num;
         }
+    }
+
+    return item;
+}
+
+CJSON_PUBLIC(cJSON *) cJSON_CreateInt(long long num)
+{
+    cJSON *item = cJSON_New_Item(&global_hooks);
+    if(item)
+    {
+        item->type = cJSON_Number;
+        item->valuedouble = (double) NAN;
+        item->valueint = num;
     }
 
     return item;
@@ -2549,7 +2607,7 @@ CJSON_PUBLIC(cJSON *) cJSON_CreateIntArray(const int *numbers, int count)
 
     for(i = 0; a && (i < (size_t)count); i++)
     {
-        n = cJSON_CreateNumber(numbers[i]);
+        n = cJSON_CreateInt(numbers[i]);
         if (!n)
         {
             cJSON_Delete(a);
